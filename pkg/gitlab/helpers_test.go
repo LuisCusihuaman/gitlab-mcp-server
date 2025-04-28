@@ -92,3 +92,16 @@ func setupMockClientForCommits(t *testing.T) (*gl.Client, *mock_gitlab.MockCommi
 
 	return client, mockCommits, ctrl
 }
+
+// Helper to create a mock GetClientFn for testing handlers for the Issues service
+func setupMockClientForIssues(t *testing.T) (*gl.Client, *mock_gitlab.MockIssuesServiceInterface, *gomock.Controller) {
+	ctrl := gomock.NewController(t)
+	mockIssues := mock_gitlab.NewMockIssuesServiceInterface(ctrl) // Mock for Issues
+
+	// Create a minimal client and attach the mock service
+	client := &gl.Client{
+		Issues: mockIssues, // Attach the Issues service mock
+	}
+
+	return client, mockIssues, ctrl
+}

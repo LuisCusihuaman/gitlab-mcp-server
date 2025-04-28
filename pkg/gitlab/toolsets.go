@@ -6,8 +6,6 @@ import (
 	"github.com/LuisCusihuaman/gitlab-mcp-server/pkg/toolsets" // Adjust path if needed
 	gl "gitlab.com/gitlab-org/api/client-go"                   // Import the GitLab client library
 	// "github.com/LuisCusihuaman/gitlab-mcp-server/pkg/translations" // Removed for now
-	// "github.com/mark3labs/mcp-go/mcp"
-	// "github.com/mark3labs/mcp-go/server"
 )
 
 // GetClientFn defines the function signature for retrieving an initialized GitLab client.
@@ -54,7 +52,9 @@ func InitToolsets(
 	// projectsTS.AddWriteTools(...)
 
 	// --- Add tools to issuesTS (Task 8 & 13) ---
-	// issuesTS.AddReadTools(...)
+	issuesTS.AddReadTools(
+		toolsets.NewServerTool(GetIssue(getClient /*, t */)),
+	)
 	// issuesTS.AddWriteTools(...)
 
 	// --- Add tools to mergeRequestsTS (Task 9 & 14) ---
