@@ -840,3 +840,256 @@ func TestGetIssueCommentsHandler(t *testing.T) {
 		})
 	}
 }
+
+// TestGetIssueLabelsHandler tests the GetIssueLabels tool handler
+func TestGetIssueLabelsHandler(t *testing.T) {
+	ctx := context.Background()
+
+	// --- Setup Mock Client and GetClientFn once ---
+	mockClient, mockIssues, ctrl := setupMockClientForIssues(t)
+	defer ctrl.Finish()
+
+	// Create the mock getClient function once, capturing the mockClient
+	mockGetClient := func(_ context.Context) (*gl.Client, error) {
+		return mockClient, nil
+	}
+
+	// --- Define the Tool and Handler once ---
+	getIssueLabelssTool, handler := GetIssueLabels(mockGetClient)
+
+	// Define common test data
+	projectID := "group/project"
+	issueIid := 1.0 // MCP number type maps to float64
+
+	// --- Test Cases ---
+	tests := []struct {
+		name                string
+		args                map[string]any // All request arguments in one map
+		mockSetup           func()         // Gomock setup (uses mockIssues from outer scope)
+		expectedResult      interface{}    // Expect slice of labels for success, or string for user error message
+		expectResultError   bool           // True if the returned mcp.CallToolResult should represent an error
+		expectInternalError bool           // True if the handler itself should return a non-nil internal error
+		errorContains       string         // Substring for internal error check ONLY
+	}{
+		// --- Success Cases ---
+		{
+			name: "Success - Get Issue Labels",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  issueIid,
+			},
+			mockSetup: func() {
+				// Create expected issue with labels for the response
+				expectedIssue := &gl.Issue{
+					ID:          123,
+					IID:         1,
+					ProjectID:   456,
+					Title:       "Test Issue",
+					Description: "This is a test issue.",
+					Labels:      []string{"bug", "critical", "needs-review"},
+				}
+
+				mockIssues.EXPECT().
+					GetIssue(projectID, int(issueIid), gomock.Any(), gomock.Any()).
+					Return(expectedIssue, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil)
+			},
+			expectedResult:      []string{"bug", "critical", "needs-review"},
+			expectResultError:   false,
+			expectInternalError: false,
+		},
+		{
+			name: "Success - Empty Labels",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  2.0, // Different issue with no labels
+			},
+			mockSetup: func() {
+				// Create expected issue with no labels
+				expectedIssue := &gl.Issue{
+					ID:          124,
+					IID:         2,
+					ProjectID:   456,
+					Title:       "Another Test Issue",
+					Description: "This is another test issue.",
+					Labels:      []string{}, // Empty array of labels
+				}
+
+				mockIssues.EXPECT().
+					GetIssue(projectID, 2, gomock.Any(), gomock.Any()).
+					Return(expectedIssue, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil)
+			},
+			expectedResult:      "[]", // Empty JSON array string
+			expectResultError:   false,
+			expectInternalError: false,
+		},
+		{
+			name: "Success - Nil Labels",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  3.0, // Different issue with nil labels
+			},
+			mockSetup: func() {
+				// Create expected issue with nil labels
+				expectedIssue := &gl.Issue{
+					ID:          125,
+					IID:         3,
+					ProjectID:   456,
+					Title:       "Yet Another Test Issue",
+					Description: "This is yet another test issue.",
+					Labels:      nil, // Nil array of labels
+				}
+
+				mockIssues.EXPECT().
+					GetIssue(projectID, 3, gomock.Any(), gomock.Any()).
+					Return(expectedIssue, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil)
+			},
+			expectedResult:      "[]", // Empty JSON array string
+			expectResultError:   false,
+			expectInternalError: false,
+		},
+		// --- Error Cases ---
+		{
+			name: "Error - Issue Not Found (404)",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  999.0,
+			},
+			mockSetup: func() {
+				mockIssues.EXPECT().
+					GetIssue(projectID, 999, gomock.Any(), gomock.Any()).
+					Return(nil, &gl.Response{Response: &http.Response{StatusCode: 404}}, errors.New("gitlab: 404 Issue Not Found"))
+			},
+			expectedResult:      "issue 999 not found in project \"group/project\" or access denied (404)",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+		{
+			name: "Error - GitLab API Error (500)",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  issueIid,
+			},
+			mockSetup: func() {
+				mockIssues.EXPECT().
+					GetIssue(projectID, int(issueIid), gomock.Any(), gomock.Any()).
+					Return(nil, &gl.Response{Response: &http.Response{StatusCode: 500}}, errors.New("gitlab: 500 Internal Server Error"))
+			},
+			expectedResult:      nil,
+			expectResultError:   false,
+			expectInternalError: true,
+			errorContains:       "failed to get labels for issue 1 from project \"group/project\"",
+		},
+		{
+			name:                "Error - Missing projectId parameter",
+			args:                map[string]any{"issueIid": issueIid}, // Missing projectId
+			mockSetup:           func() { /* No API call expected */ },
+			expectedResult:      "Validation Error: missing required parameter: projectId",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+		{
+			name:                "Error - Missing issueIid parameter",
+			args:                map[string]any{"projectId": projectID}, // Missing issueIid
+			mockSetup:           func() { /* No API call expected */ },
+			expectedResult:      "Validation Error: missing required parameter: issueIid",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+		{
+			name:                "Error - Invalid issueIid (not integer)",
+			args:                map[string]any{"projectId": projectID, "issueIid": 1.5}, // Non-integer float
+			mockSetup:           func() { /* No API call expected */ },
+			expectedResult:      "Validation Error: issueIid 1.5 is not a valid integer",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+	}
+
+	// Test case for Client Initialization Error (outside the loop)
+	t.Run("Error - Client Initialization Error", func(t *testing.T) {
+		// Define a GetClientFn that returns an error
+		errorGetClientFn := func(_ context.Context) (*gl.Client, error) {
+			return nil, fmt.Errorf("mock init error")
+		}
+		_, handler := GetIssueLabels(errorGetClientFn)
+
+		request := mcp.CallToolRequest{
+			Params: struct {
+				Name      string                 `json:"name"`
+				Arguments map[string]interface{} `json:"arguments,omitempty"`
+				Meta      *struct {
+					ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
+				} `json:"_meta,omitempty"`
+			}{
+				Name:      getIssueLabelssTool.Name,
+				Arguments: map[string]any{"projectId": "any", "issueIid": 1.0},
+			},
+		}
+
+		result, err := handler(ctx, request)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "failed to initialize GitLab client: mock init error")
+		assert.Nil(t, result)
+	})
+
+	// --- Run Loop for other tests ---
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup mock expectations for this specific test case
+			tc.mockSetup()
+
+			// Prepare request using correct structure
+			request := mcp.CallToolRequest{
+				Params: struct {
+					Name      string                 `json:"name"`
+					Arguments map[string]interface{} `json:"arguments,omitempty"`
+					Meta      *struct {
+						ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
+					} `json:"_meta,omitempty"`
+				}{
+					Name:      getIssueLabelssTool.Name,
+					Arguments: tc.args,
+				},
+			}
+
+			// Execute handler (defined outside the loop)
+			result, err := handler(ctx, request)
+
+			// Assertions
+			if tc.expectInternalError {
+				require.Error(t, err) // Expect the handler itself to return an error
+				if tc.errorContains != "" {
+					assert.ErrorContains(t, err, tc.errorContains)
+				}
+				assert.Nil(t, result) // Result should be nil when handler errors
+			} else {
+				require.NoError(t, err)                 // Handler should not return an error
+				require.NotNil(t, result)               // Result should not be nil
+				textContent := getTextResult(t, result) // Use helper
+
+				if tc.expectResultError {
+					// User-facing errors (validation, not found) check textContent.Text
+					expectedErrString, ok := tc.expectedResult.(string)
+					require.True(t, ok, "Expected user error result to be a string")
+					assert.Contains(t, textContent.Text, expectedErrString, "User error message mismatch")
+				} else {
+					if expectedStr, ok := tc.expectedResult.(string); ok {
+						// Special case for empty array
+						assert.Equal(t, expectedStr, textContent.Text, "Result JSON mismatch")
+					} else {
+						// Successful result - compare JSON content
+						expectedLabels, ok := tc.expectedResult.([]string)
+						require.True(t, ok, "Expected success result should be []string")
+
+						// Marshal expected labels for comparison
+						expectedJSON, err := json.Marshal(expectedLabels)
+						require.NoError(t, err, "Failed to marshal expected labels")
+
+						// Compare JSON directly
+						assert.JSONEq(t, string(expectedJSON), textContent.Text, "Labels JSON mismatch")
+					}
+				}
+			}
+		})
+	}
+}

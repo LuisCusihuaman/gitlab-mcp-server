@@ -419,3 +419,77 @@ func GetIssueComments(getClient GetClientFn) (tool mcp.Tool, handler server.Tool
 			return mcp.NewToolResultText(string(data)), nil
 		}
 }
+
+// GetIssueLabels defines the MCP tool for retrieving the labels associated with an issue.
+func GetIssueLabels(getClient GetClientFn) (tool mcp.Tool, handler server.ToolHandlerFunc) {
+	return mcp.NewTool(
+			"getIssueLabels",
+			mcp.WithDescription("Retrieves the labels associated with a specific GitLab issue."),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{
+				Title:        "Get Issue Labels",
+				ReadOnlyHint: true,
+			}),
+			// Required parameters
+			mcp.WithString("projectId",
+				mcp.Description("The ID (integer) or URL-encoded path (string) of the project."),
+				mcp.Required(),
+			),
+			mcp.WithNumber("issueIid",
+				mcp.Description("The IID (internal ID, integer) of the issue within the project."),
+				mcp.Required(),
+			),
+		),
+		// Handler function implementation
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// --- Parse parameters
+			projectID, err := requiredParam[string](&request, "projectId")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+
+			issueIidFloat, err := requiredParam[float64](&request, "issueIid")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+			issueIid := int(issueIidFloat) // Convert float64 to int for API call
+			// Check if conversion lost precision
+			if float64(issueIid) != issueIidFloat {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: issueIid %v is not a valid integer", issueIidFloat)), nil
+			}
+
+			// --- Obtain GitLab client
+			glClient, err := getClient(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize GitLab client: %w", err)
+			}
+
+			// --- Call GitLab API to get issue details
+			// We need to get the issue first to extract its labels
+			issue, resp, err := glClient.Issues.GetIssue(projectID, issueIid, nil, gl.WithContext(ctx))
+
+			// --- Handle API errors
+			if err != nil {
+				code := http.StatusInternalServerError
+				if resp != nil {
+					code = resp.StatusCode
+				}
+				if code == http.StatusNotFound {
+					msg := fmt.Sprintf("issue %d not found in project %q or access denied (%d)", issueIid, projectID, code)
+					return mcp.NewToolResultError(msg), nil
+				}
+				return nil, fmt.Errorf("failed to get labels for issue %d from project %q: %w (status: %d)", issueIid, projectID, err, code)
+			}
+
+			// --- Extract and return labels
+			// Handle empty list gracefully
+			if len(issue.Labels) == 0 {
+				return mcp.NewToolResultText("[]"), nil // Return empty JSON array
+			}
+
+			data, err := json.Marshal(issue.Labels)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal issue labels data: %w", err)
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		}
+}
