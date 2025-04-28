@@ -15,6 +15,7 @@ vendor
 PDR.md
 gitlab_openapi_v2.yaml
 .windsurfrules
+scripts/task-complexity-report.json
 github-mcp-server
 .cursor
 
