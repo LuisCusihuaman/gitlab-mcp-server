@@ -61,7 +61,11 @@ func InitToolsets(
 	// issuesTS.AddWriteTools(...)
 
 	// --- Add tools to mergeRequestsTS (Task 9 & 14) ---
-	// mergeRequestsTS.AddReadTools(...)
+	mergeRequestsTS.AddReadTools(
+		toolsets.NewServerTool(GetMergeRequest(getClient)),
+		toolsets.NewServerTool(ListMergeRequests(getClient)),
+		toolsets.NewServerTool(GetMergeRequestComments(getClient)),
+	)
 	// mergeRequestsTS.AddWriteTools(...)
 
 	// --- Add tools to securityTS (Part of future tasks?) ---
