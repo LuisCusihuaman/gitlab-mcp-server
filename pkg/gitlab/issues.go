@@ -330,3 +330,92 @@ func ListIssues(getClient GetClientFn) (tool mcp.Tool, handler server.ToolHandle
 			return mcp.NewToolResultText(string(data)), nil
 		}
 }
+
+// GetIssueComments defines the MCP tool for retrieving issue comments/notes.
+func GetIssueComments(getClient GetClientFn) (tool mcp.Tool, handler server.ToolHandlerFunc) {
+	return mcp.NewTool(
+			"getIssueComments",
+			mcp.WithDescription("Retrieves comments or notes from a specific issue in a GitLab project."),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{
+				Title:        "Get Issue Comments",
+				ReadOnlyHint: true,
+			}),
+			// Required parameters
+			mcp.WithString("projectId",
+				mcp.Description("The ID (integer) or URL-encoded path (string) of the project."),
+				mcp.Required(),
+			),
+			mcp.WithNumber("issueIid",
+				mcp.Description("The IID (internal ID, integer) of the issue within the project."),
+				mcp.Required(),
+			),
+			// Add standard MCP pagination parameters
+			WithPagination(),
+		),
+		// Handler function implementation
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// --- Parse parameters
+			projectID, err := requiredParam[string](&request, "projectId")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+
+			issueIidFloat, err := requiredParam[float64](&request, "issueIid")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+			issueIid := int(issueIidFloat) // Convert float64 to int for API call
+			// Check if conversion lost precision
+			if float64(issueIid) != issueIidFloat {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: issueIid %v is not a valid integer", issueIidFloat)), nil
+			}
+
+			// Get pagination parameters
+			page, perPage, err := OptionalPaginationParams(&request)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+
+			// --- Obtain GitLab client
+			glClient, err := getClient(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to initialize GitLab client: %w", err)
+			}
+
+			// --- Construct GitLab API options
+			opts := &gl.ListIssueNotesOptions{
+				ListOptions: gl.ListOptions{
+					Page:    page,
+					PerPage: perPage,
+				},
+			}
+
+			// --- Call GitLab API
+			notes, resp, err := glClient.Notes.ListIssueNotes(projectID, issueIid, opts, gl.WithContext(ctx))
+
+			// --- Handle API errors
+			if err != nil {
+				code := http.StatusInternalServerError
+				if resp != nil {
+					code = resp.StatusCode
+				}
+				if code == http.StatusNotFound {
+					msg := fmt.Sprintf("issue %d not found in project %q or access denied (%d)", issueIid, projectID, code)
+					return mcp.NewToolResultError(msg), nil
+				}
+				return nil, fmt.Errorf("failed to get comments for issue %d from project %q: %w (status: %d)", issueIid, projectID, err, code)
+			}
+
+			// --- Marshal and return success
+			// Handle empty list gracefully
+			if len(notes) == 0 {
+				return mcp.NewToolResultText("[]"), nil // Return empty JSON array
+			}
+
+			data, err := json.Marshal(notes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal issue comments data: %w", err)
+			}
+			return mcp.NewToolResultText(string(data)), nil
+		}
+}

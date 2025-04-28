@@ -6,15 +6,16 @@ import (
 	"errors"        // Added for creating mock errors
 	"fmt"
 	"net/http"
+	"testing"
+	"time" // Add time import
 
 	// "net/http/httptest"
 	// "net/url" // No longer needed for http server
-	"testing"
-
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	gl "gitlab.com/gitlab-org/api/client-go" // GitLab client library
+	gl "gitlab.com/gitlab-org/api/client-go"                  // GitLab client library
+	mock_gitlab "gitlab.com/gitlab-org/api/client-go/testing" // Import for mocks
 
 	// Gomock mocks
 	"go.uber.org/mock/gomock" // Added for gomock
@@ -514,6 +515,325 @@ func TestListIssuesHandler(t *testing.T) {
 						expectedJSON, err := json.Marshal(expectedIssues)
 						require.NoError(t, err, "Failed to marshal expected success result")
 						assert.JSONEq(t, string(expectedJSON), textContent.Text, "Result JSON mismatch")
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestGetIssueCommentsHandler tests the GetIssueComments tool handler
+func TestGetIssueCommentsHandler(t *testing.T) {
+	ctx := context.Background()
+
+	// --- Setup Mock Client and GetClientFn once ---
+	mockClient, _, ctrl := setupMockClientForIssues(t) // Use _ for unused mockIssues variable
+	defer ctrl.Finish()
+
+	// Create a mock notes service
+	mockNotes := mock_gitlab.NewMockNotesServiceInterface(ctrl)
+	mockClient.Notes = mockNotes
+
+	// Create the mock getClient function once, capturing the mockClient
+	mockGetClient := func(_ context.Context) (*gl.Client, error) {
+		return mockClient, nil
+	}
+
+	// --- Define the Tool and Handler once ---
+	getIssueCommentsTool, handler := GetIssueComments(mockGetClient)
+
+	// Define common test data
+	projectID := "group/project"
+	issueIid := 1.0 // MCP number type maps to float64
+
+	// Create time values to use in tests
+	timeNow := time.Now()
+	time24HoursAgo := timeNow.Add(-24 * time.Hour)
+	time12HoursAgo := timeNow.Add(-12 * time.Hour)
+	time6HoursAgo := timeNow.Add(-6 * time.Hour)
+
+	// --- Test Cases ---
+	tests := []struct {
+		name                string
+		args                map[string]any // All request arguments in one map
+		mockSetup           func()         // Gomock setup (uses mockNotes from outer scope)
+		expectedResult      interface{}    // Expect slice of notes for success, or string for user error message
+		expectResultError   bool           // True if the returned mcp.CallToolResult should represent an error
+		expectInternalError bool           // True if the handler itself should return a non-nil internal error
+		errorContains       string         // Substring for internal error check ONLY
+	}{
+		// --- Success Cases ---
+		{
+			name: "Success - Get Issue Comments",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  issueIid,
+			},
+			mockSetup: func() {
+				// Create expected notes for the response with correct fields
+				expectedNotes := []*gl.Note{
+					{
+						ID:   123,
+						Body: "This is a comment",
+						Author: gl.NoteAuthor{
+							Name: "Test User",
+						},
+						CreatedAt: &time24HoursAgo,
+					},
+					{
+						ID:   124,
+						Body: "This is another comment",
+						Author: gl.NoteAuthor{
+							Name: "Another User",
+						},
+						CreatedAt: &time12HoursAgo,
+					},
+				}
+
+				mockNotes.EXPECT().
+					ListIssueNotes(projectID, int(issueIid), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ any, _ int, opts *gl.ListIssueNotesOptions, _ ...gl.RequestOptionFunc) ([]*gl.Note, *gl.Response, error) {
+						// Verify pagination settings
+						assert.Equal(t, 1, opts.Page)
+						assert.Equal(t, DefaultPerPage, opts.PerPage)
+
+						return expectedNotes, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil
+					})
+			},
+			expectedResult: []*gl.Note{
+				{
+					ID:   123,
+					Body: "This is a comment",
+					Author: gl.NoteAuthor{
+						Name: "Test User",
+					},
+					CreatedAt: &time24HoursAgo,
+				},
+				{
+					ID:   124,
+					Body: "This is another comment",
+					Author: gl.NoteAuthor{
+						Name: "Another User",
+					},
+					CreatedAt: &time12HoursAgo,
+				},
+			},
+			expectResultError:   false,
+			expectInternalError: false,
+		},
+		{
+			name: "Success - Issue Comments With Pagination",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  issueIid,
+				"page":      2,
+				"per_page":  5,
+			},
+			mockSetup: func() {
+				// Create expected notes for the response with correct fields
+				expectedNotes := []*gl.Note{
+					{
+						ID:   125,
+						Body: "Paginated comment",
+						Author: gl.NoteAuthor{
+							Name: "Test User",
+						},
+						CreatedAt: &time6HoursAgo,
+					},
+				}
+
+				mockNotes.EXPECT().
+					ListIssueNotes(projectID, int(issueIid), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ any, _ int, opts *gl.ListIssueNotesOptions, _ ...gl.RequestOptionFunc) ([]*gl.Note, *gl.Response, error) {
+						// Verify pagination settings
+						assert.Equal(t, 2, opts.Page)
+						assert.Equal(t, 5, opts.PerPage)
+
+						return expectedNotes, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil
+					})
+			},
+			expectedResult: []*gl.Note{
+				{
+					ID:   125,
+					Body: "Paginated comment",
+					Author: gl.NoteAuthor{
+						Name: "Test User",
+					},
+					CreatedAt: &time6HoursAgo,
+				},
+			},
+			expectResultError:   false,
+			expectInternalError: false,
+		},
+		{
+			name: "Success - Empty Comments",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  2.0, // Different issue with no comments
+			},
+			mockSetup: func() {
+				mockNotes.EXPECT().
+					ListIssueNotes(projectID, 2, gomock.Any(), gomock.Any()).
+					Return([]*gl.Note{}, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil)
+			},
+			expectedResult:      "[]", // Empty JSON array string
+			expectResultError:   false,
+			expectInternalError: false,
+		},
+		// --- Error Cases ---
+		{
+			name: "Error - Issue Not Found (404)",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  999.0,
+			},
+			mockSetup: func() {
+				mockNotes.EXPECT().
+					ListIssueNotes(projectID, 999, gomock.Any(), gomock.Any()).
+					Return(nil, &gl.Response{Response: &http.Response{StatusCode: 404}}, errors.New("gitlab: 404 Issue Not Found"))
+			},
+			expectedResult:      "issue 999 not found in project \"group/project\" or access denied (404)",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+		{
+			name: "Error - GitLab API Error (500)",
+			args: map[string]any{
+				"projectId": projectID,
+				"issueIid":  issueIid,
+			},
+			mockSetup: func() {
+				mockNotes.EXPECT().
+					ListIssueNotes(projectID, int(issueIid), gomock.Any(), gomock.Any()).
+					Return(nil, &gl.Response{Response: &http.Response{StatusCode: 500}}, errors.New("gitlab: 500 Internal Server Error"))
+			},
+			expectedResult:      nil,
+			expectResultError:   false,
+			expectInternalError: true,
+			errorContains:       "failed to get comments for issue 1 from project \"group/project\"",
+		},
+		{
+			name:                "Error - Missing projectId parameter",
+			args:                map[string]any{"issueIid": issueIid}, // Missing projectId
+			mockSetup:           func() { /* No API call expected */ },
+			expectedResult:      "Validation Error: missing required parameter: projectId",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+		{
+			name:                "Error - Missing issueIid parameter",
+			args:                map[string]any{"projectId": projectID}, // Missing issueIid
+			mockSetup:           func() { /* No API call expected */ },
+			expectedResult:      "Validation Error: missing required parameter: issueIid",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+		{
+			name:                "Error - Invalid issueIid (not integer)",
+			args:                map[string]any{"projectId": projectID, "issueIid": 1.5}, // Non-integer float
+			mockSetup:           func() { /* No API call expected */ },
+			expectedResult:      "Validation Error: issueIid 1.5 is not a valid integer",
+			expectResultError:   true,
+			expectInternalError: false,
+		},
+	}
+
+	// Test case for Client Initialization Error (outside the loop)
+	t.Run("Error - Client Initialization Error", func(t *testing.T) {
+		// Define a GetClientFn that returns an error
+		errorGetClientFn := func(_ context.Context) (*gl.Client, error) {
+			return nil, fmt.Errorf("mock init error")
+		}
+		_, handler := GetIssueComments(errorGetClientFn)
+
+		request := mcp.CallToolRequest{
+			Params: struct {
+				Name      string                 `json:"name"`
+				Arguments map[string]interface{} `json:"arguments,omitempty"`
+				Meta      *struct {
+					ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
+				} `json:"_meta,omitempty"`
+			}{
+				Name:      getIssueCommentsTool.Name,
+				Arguments: map[string]any{"projectId": "any", "issueIid": 1.0},
+			},
+		}
+
+		result, err := handler(ctx, request)
+		assert.Error(t, err)
+		assert.ErrorContains(t, err, "failed to initialize GitLab client: mock init error")
+		assert.Nil(t, result)
+	})
+
+	// --- Run Loop for other tests ---
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Setup mock expectations for this specific test case
+			tc.mockSetup()
+
+			// Prepare request using correct structure
+			request := mcp.CallToolRequest{
+				Params: struct {
+					Name      string                 `json:"name"`
+					Arguments map[string]interface{} `json:"arguments,omitempty"`
+					Meta      *struct {
+						ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
+					} `json:"_meta,omitempty"`
+				}{
+					Name:      getIssueCommentsTool.Name,
+					Arguments: tc.args,
+				},
+			}
+
+			// Execute handler (defined outside the loop)
+			result, err := handler(ctx, request)
+
+			// Assertions
+			if tc.expectInternalError {
+				require.Error(t, err) // Expect the handler itself to return an error
+				if tc.errorContains != "" {
+					assert.ErrorContains(t, err, tc.errorContains)
+				}
+				assert.Nil(t, result) // Result should be nil when handler errors
+			} else {
+				require.NoError(t, err)                 // Handler should not return an error
+				require.NotNil(t, result)               // Result should not be nil
+				textContent := getTextResult(t, result) // Use helper
+
+				if tc.expectResultError {
+					// User-facing errors (validation, not found) check textContent.Text
+					expectedErrString, ok := tc.expectedResult.(string)
+					require.True(t, ok, "Expected user error result to be a string")
+					assert.Contains(t, textContent.Text, expectedErrString, "User error message mismatch")
+				} else {
+					if expectedStr, ok := tc.expectedResult.(string); ok {
+						// Special case for empty array
+						assert.Equal(t, expectedStr, textContent.Text, "Result JSON mismatch")
+					} else {
+						// Successful result - compare JSON content
+						expectedNotes, ok := tc.expectedResult.([]*gl.Note)
+						require.True(t, ok, "Expected success result should be []*gl.Note")
+
+						// For time-related fields, we need to be more careful with comparisons
+						// Instead of direct JSON comparison, we could extract and compare the relevant fields
+						// or use a custom comparison function
+
+						// Unmarshal the actual result
+						var actualNotes []*gl.Note
+						err := json.Unmarshal([]byte(textContent.Text), &actualNotes)
+						require.NoError(t, err, "Failed to unmarshal actual result JSON")
+
+						// Compare lengths
+						assert.Equal(t, len(expectedNotes), len(actualNotes), "Number of notes doesn't match")
+
+						// Compare important fields for each note
+						for i, expectedNote := range expectedNotes {
+							if i < len(actualNotes) {
+								assert.Equal(t, expectedNote.ID, actualNotes[i].ID, "Note ID mismatch")
+								assert.Equal(t, expectedNote.Body, actualNotes[i].Body, "Note body mismatch")
+								assert.Equal(t, expectedNote.Author.Name, actualNotes[i].Author.Name, "Note author mismatch")
+							}
+						}
 					}
 				}
 			}
