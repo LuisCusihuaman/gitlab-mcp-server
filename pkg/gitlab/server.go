@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -194,6 +195,30 @@ func OptionalBoolParam(r *mcp.CallToolRequest, p string) (*bool, error) {
 		return nil, fmt.Errorf("parameter '%s' must be a boolean (or boolean-like string), got type %T", p, rawVal)
 	}
 	return &boolVal, nil // Return pointer to the boolean value
+}
+
+// OptionalTimeParam parses an optional ISO 8601 timestamp string parameter.
+// It returns nil if the parameter is missing, empty, or null.
+func OptionalTimeParam(request *mcp.CallToolRequest, name string) (*time.Time, error) {
+	val, exists, err := OptionalParamOK[string](request, name)
+	if err != nil {
+		// This handles incorrect type (non-string)
+		return nil, fmt.Errorf("invalid '%s' parameter: %w", name, err)
+	}
+	if !exists || val == "" { // Parameter not present or explicitly empty
+		return nil, nil
+	}
+
+	t, err := time.Parse(time.RFC3339Nano, val)
+	if err != nil {
+		// Try parsing without nano just in case
+		t, err = time.Parse(time.RFC3339, val)
+		if err != nil {
+			return nil, fmt.Errorf("parameter '%s' must be a valid ISO 8601 timestamp string (e.g., '2006-01-02T15:04:05Z'), got %q: %w", name, val, err)
+		}
+	}
+
+	return &t, nil
 }
 
 // --- Pagination Helpers ---
