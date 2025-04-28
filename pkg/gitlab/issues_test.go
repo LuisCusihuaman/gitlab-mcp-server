@@ -14,9 +14,9 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	gl "gitlab.com/gitlab-org/api/client-go"                  // GitLab client library
-	mock_gitlab "gitlab.com/gitlab-org/api/client-go/testing" // Import for mocks
+	gl "gitlab.com/gitlab-org/api/client-go" // GitLab client library
 
+	// Import for mocks
 	// Gomock mocks
 	"go.uber.org/mock/gomock" // Added for gomock
 )
@@ -527,12 +527,8 @@ func TestGetIssueCommentsHandler(t *testing.T) {
 	ctx := context.Background()
 
 	// --- Setup Mock Client and GetClientFn once ---
-	mockClient, _, ctrl := setupMockClientForIssues(t) // Use _ for unused mockIssues variable
+	mockClient, mockNotes, ctrl := setupMockClientForNotes(t)
 	defer ctrl.Finish()
-
-	// Create a mock notes service
-	mockNotes := mock_gitlab.NewMockNotesServiceInterface(ctrl)
-	mockClient.Notes = mockNotes
 
 	// Create the mock getClient function once, capturing the mockClient
 	mockGetClient := func(_ context.Context) (*gl.Client, error) {
