@@ -49,17 +49,7 @@ func TestRequiredParam(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := &mcp.CallToolRequest{
-				Params: struct {
-					Name      string                 "json:\"name\""
-					Arguments map[string]interface{} "json:\"arguments,omitempty\""
-					Meta      *struct {
-						ProgressToken mcp.ProgressToken "json:\"progressToken,omitempty\""
-					} "json:\"_meta,omitempty\""
-				}{
-					Arguments: tc.params,
-				},
-			}
+			req := createMCPRequest(tc.params)
 
 			val, err := requiredParam(req, tc.paramName)
 
@@ -74,8 +64,8 @@ func TestRequiredParam(t *testing.T) {
 	}
 }
 
-// Helper function to create a CallToolRequest for tests
-func createTestRequest(params map[string]interface{}) *mcp.CallToolRequest {
+// createMCPRequest is a helper function to create a CallToolRequest for tests
+func createMCPRequest(params map[string]interface{}) *mcp.CallToolRequest {
 	return &mcp.CallToolRequest{
 		Params: struct {
 			Name      string                 "json:\"name\""
@@ -129,7 +119,7 @@ func TestOptionalParam(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := createTestRequest(tc.params)
+			req := createMCPRequest(tc.params)
 			val := OptionalParam(req, tc.paramName, tc.defaultValue)
 			assert.Equal(t, tc.expectedVal, val)
 		})
@@ -214,7 +204,7 @@ func TestOptionalIntParam(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := createTestRequest(tc.params)
+			req := createMCPRequest(tc.params)
 			val, err := OptionalIntParam(req, tc.paramName, tc.defaultValue)
 
 			if tc.expectError {
@@ -302,7 +292,7 @@ func TestOptionalPaginationParams(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := createTestRequest(tc.params)
+			req := createMCPRequest(tc.params)
 			page, perPage, err := OptionalPaginationParams(req)
 
 			if tc.expectError {
