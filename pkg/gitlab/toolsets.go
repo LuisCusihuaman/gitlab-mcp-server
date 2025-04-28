@@ -53,7 +53,8 @@ func InitToolsets(
 
 	// --- Add tools to issuesTS (Task 8 & 13) ---
 	issuesTS.AddReadTools(
-		toolsets.NewServerTool(GetIssue(getClient /*, t */)),
+		toolsets.NewServerTool(GetIssue(getClient)),
+		toolsets.NewServerTool(ListIssues(getClient)),
 	)
 	// issuesTS.AddWriteTools(...)
 
