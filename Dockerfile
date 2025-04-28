@@ -33,15 +33,6 @@ COPY --from=builder /app/gitlab-mcp-server .
 # Expose port (if needed for non-stdio communication later, otherwise informational)
 # EXPOSE 8080 
 
-# Set environment variables (defaults, can be overridden)
-# GitLab Personal Access Token (PAT), Group or Project token for API authentication. Required.
-ENV GITLAB_TOKEN=""
-# Base URL for GitLab instance (e.g., "https://gitlab.example.com"). Defaults to "https://gitlab.com" if empty. Optional.
-ENV GITLAB_HOST=""
-# Comma-separated list of toolsets to enable (e.g., "issues,merge_requests"). Defaults to "all". Optional.
-ENV GITLAB_TOOLSETS="all"
-# Set to "1" or "true" to enable dynamic toolset discovery by the MCP host. Defaults to "0" (false). Optional.
-ENV GITLAB_DYNAMIC_TOOLSETS="0"
 
 # Command to run the executable using stdio communication
 ENTRYPOINT ["./gitlab-mcp-server", "stdio"]
