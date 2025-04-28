@@ -1,15 +1,16 @@
 package main
 
-import "fmt"
+import "github.com/vektra/mockery/v2/cmd"
 
-// Placeholders for version info injected by goreleaser/build
-var (
-	version = "dev"
-	commit  = "none"
-	date    = "unknown"
-)
+// Build time variables - These are meant to be set via ldflags during the build process
+// var (
+// 	version = "dev"
+// 	commit  = "none"
+// 	date    = "unknown"
+// )
 
 func main() {
-	fmt.Println("GitLab MCP Server (minimal placeholder)")
-	// We will replace this with actual cobra/viper setup later
+	// You can optionally pass the version info to the commands if needed
+	// For example: cmd.Version = version
+	cmd.Execute()
 }
