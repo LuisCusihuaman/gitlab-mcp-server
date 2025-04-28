@@ -11,7 +11,7 @@ import (
 )
 
 // DefaultPerPage defines the default number of items per page for pagination.
-const DefaultPerPage = 30
+const DefaultPerPage = 20
 
 // MaxPerPage defines the maximum number of items per page allowed by GitLab.
 const MaxPerPage = 100
