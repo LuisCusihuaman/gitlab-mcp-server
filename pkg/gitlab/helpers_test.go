@@ -105,3 +105,29 @@ func setupMockClientForIssues(t *testing.T) (*gl.Client, *mock_gitlab.MockIssues
 
 	return client, mockIssues, ctrl
 }
+
+// Helper to create a mock GetClientFn for testing handlers for the MergeRequests service
+func setupMockClientForMergeRequests(t *testing.T) (*gl.Client, *mock_gitlab.MockMergeRequestsServiceInterface, *gomock.Controller) {
+	ctrl := gomock.NewController(t)
+	mockMRs := mock_gitlab.NewMockMergeRequestsServiceInterface(ctrl) // Mock for MergeRequests
+
+	// Create a minimal client and attach the mock service
+	client := &gl.Client{
+		MergeRequests: mockMRs, // Attach the MergeRequests service mock
+	}
+
+	return client, mockMRs, ctrl
+}
+
+// Helper to create a mock GetClientFn for testing handlers for the Notes service
+func setupMockClientForNotes(t *testing.T) (*gl.Client, *mock_gitlab.MockNotesServiceInterface, *gomock.Controller) {
+	ctrl := gomock.NewController(t)
+	mockNotes := mock_gitlab.NewMockNotesServiceInterface(ctrl) // Mock for Notes
+
+	// Create a minimal client and attach the mock service
+	client := &gl.Client{
+		Notes: mockNotes, // Attach the Notes service mock
+	}
+
+	return client, mockNotes, ctrl
+}

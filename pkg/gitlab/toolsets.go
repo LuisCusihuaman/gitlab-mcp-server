@@ -55,6 +55,8 @@ func InitToolsets(
 	issuesTS.AddReadTools(
 		toolsets.NewServerTool(GetIssue(getClient)),
 		toolsets.NewServerTool(ListIssues(getClient)),
+		toolsets.NewServerTool(GetIssueComments(getClient)),
+		toolsets.NewServerTool(GetIssueLabels(getClient)),
 	)
 	// issuesTS.AddWriteTools(...)
 
