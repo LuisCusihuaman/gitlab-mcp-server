@@ -11,10 +11,9 @@ import (
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
-// Mock GetClientFn for testing InitToolsets
-// Corrected to return the actual client type from gitlab.com/gitlab-org/api/client-go
+// Reintroduce mockGetClientFn for testing InitToolsets with the GetClientFn signature
 func mockGetClientFn(_ context.Context) (*gitlab.Client, error) {
-	// Return a nil client, as InitToolsets doesn't use it yet
+	// Return a nil client, as InitToolsets and tool definitions don't use it yet
 	return nil, nil
 }
 
@@ -92,8 +91,9 @@ func TestInitToolsets(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Call InitToolsets (passing nil translation helper)
-			tg, err := InitToolsets(tc.enabledToolsets, tc.readOnly, mockGetClientFn)
+			// Call InitToolsets using the mock function again
+			// Pass nil for the translation helper for now
+			tg, err := InitToolsets(tc.enabledToolsets, tc.readOnly, mockGetClientFn /*, nil */)
 
 			if tc.expectError {
 				require.Error(t, err)

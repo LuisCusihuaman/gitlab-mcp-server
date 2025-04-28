@@ -1,22 +1,28 @@
 package gitlab
 
 import (
+	"context" // Added for GetClientFn
 	// Import necessary packages, including your toolsets package
 	"github.com/LuisCusihuaman/gitlab-mcp-server/pkg/toolsets" // Adjust path if needed
+	gl "gitlab.com/gitlab-org/api/client-go"                   // Import the GitLab client library
 	// "github.com/LuisCusihuaman/gitlab-mcp-server/pkg/translations" // Removed for now
 	// "github.com/mark3labs/mcp-go/mcp"
 	// "github.com/mark3labs/mcp-go/server"
 )
 
+// GetClientFn defines the function signature for retrieving an initialized GitLab client.
+// This allows decoupling toolset initialization from direct client creation.
+type GetClientFn func(context.Context) (*gl.Client, error)
+
 // DefaultTools defines the list of toolsets enabled by default.
 var DefaultTools = []string{"all"}
 
 // InitToolsets initializes the ToolsetGroup with GitLab-specific toolsets.
-// It creates the toolset definitions but does not populate them with actual tools yet.
+// It accepts a function to retrieve the GitLab client.
 func InitToolsets(
 	enabledToolsets []string,
 	readOnly bool,
-	_ GetClientFn, // Renamed getClient to _
+	_ GetClientFn, // Renamed getClient to _ as it's unused for now
 	// t translations.TranslationHelperFunc, // Removed for now
 ) (*toolsets.ToolsetGroup, error) {
 
@@ -32,6 +38,10 @@ func InitToolsets(
 	searchTS := toolsets.NewToolset("search", "Tools for utilizing GitLab's scoped search capabilities.")
 
 	// 3. Add Tools to Toolsets (Actual tool implementation TBD in separate tasks)
+	//    Tool definition functions will need to accept GetClientFn or call it.
+	//    Example (placeholder):
+	//    getProjectTool := toolsets.NewServerTool(GetProject(getClient, t))
+
 	// --- Add tools to projectsTS (Task 7 & 12) ---
 	// projectsTS.AddReadTools(...)
 	// projectsTS.AddWriteTools(...)

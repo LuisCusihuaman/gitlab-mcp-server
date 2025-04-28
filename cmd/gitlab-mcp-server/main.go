@@ -84,23 +84,26 @@ var (
 				logger.Infof("Using custom GitLab host: %s", host)
 			}
 
-			// Initialize GitLab Client
-			// TODO: Update NewClient signature in pkg/gitlab/client.go if needed (e.g., to accept ctx)
-			glClient, err := gitlab.NewClient(token, host)
+			// Initialize GitLab Client directly
+			clientOpts := []gl.ClientOptionFunc{}
+			if host != "" {
+				clientOpts = append(clientOpts, gl.WithBaseURL(host))
+			}
+			glClient, err := gl.NewClient(token, clientOpts...)
 			if err != nil {
 				logger.Fatalf("Failed to initialize GitLab client: %v", err)
 			}
 			logger.Info("GitLab client initialized")
 
-			// Define GetClientFn closure
+			// Define GetClientFn closure again
 			getClient := func(_ context.Context) (*gl.Client, error) {
-				return glClient, nil // Provide the initialized client
+				return glClient, nil // Provide the initialized client via closure
 			}
 
 			// TODO: Initialize Translations (deferring for now)
 			// t, dumpTranslations := translations.TranslationHelper()
 
-			// Initialize Toolsets
+			// Initialize Toolsets, passing the getClient function
 			toolsetGroup, err := gitlab.InitToolsets(enabledToolsets, readOnly, getClient /*, t */)
 			if err != nil {
 				logger.Fatalf("Failed to initialize toolsets: %v", err)
