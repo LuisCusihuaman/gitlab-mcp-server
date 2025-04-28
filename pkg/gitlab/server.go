@@ -4,6 +4,7 @@ import (
 	// Added for potential future use in handlers
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -164,6 +165,35 @@ func OptionalIntParamWithDefault(r *mcp.CallToolRequest, p string, defaultValue 
 		return defaultValue, nil
 	}
 	return v, nil
+}
+
+// OptionalBoolParam retrieves an optional boolean parameter from the request arguments.
+// It returns a pointer to the boolean value if found and valid, or nil if not present.
+// Returns an error if the parameter exists but is not a valid boolean.
+func OptionalBoolParam(r *mcp.CallToolRequest, p string) (*bool, error) {
+	rawVal, ok := r.Params.Arguments[p]
+	if !ok || rawVal == nil {
+		return nil, nil // Not present or explicitly null
+	}
+
+	boolVal, ok := rawVal.(bool)
+	if !ok {
+		// Attempt to parse from string if it's not directly a bool (e.g., "true", "false")
+		strVal, isStr := rawVal.(string)
+		if isStr {
+			switch strings.ToLower(strVal) {
+			case "true", "1", "t", "yes", "y":
+				parsedVal := true
+				return &parsedVal, nil
+			case "false", "0", "f", "no", "n":
+				parsedVal := false
+				return &parsedVal, nil
+			}
+		}
+		// If not a bool and not a parsable string, return error
+		return nil, fmt.Errorf("parameter '%s' must be a boolean (or boolean-like string), got type %T", p, rawVal)
+	}
+	return &boolVal, nil // Return pointer to the boolean value
 }
 
 // --- Pagination Helpers ---
