@@ -43,7 +43,10 @@ func InitToolsets(
 	//    getProjectTool := toolsets.NewServerTool(GetProject(getClient, t))
 
 	// --- Add tools to projectsTS (Task 7 & 12) ---
-	projectsTS.AddReadTools(toolsets.NewServerTool(GetProject(getClient /*, t */)))
+	projectsTS.AddReadTools(
+		toolsets.NewServerTool(GetProject(getClient /*, t */)),
+		toolsets.NewServerTool(ListProjects(getClient /*, t */)),
+	)
 	// projectsTS.AddWriteTools(...)
 
 	// --- Add tools to issuesTS (Task 8 & 13) ---
