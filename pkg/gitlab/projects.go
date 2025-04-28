@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"encoding/base64"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	gl "gitlab.com/gitlab-org/api/client-go" // GitLab client library
@@ -187,5 +189,83 @@ func ListProjects(getClient GetClientFn) (tool mcp.Tool, handler server.ToolHand
 				return nil, fmt.Errorf("failed to marshal project list data: %w", err)
 			}
 			return mcp.NewToolResultText(string(data)), nil
+		}
+}
+
+// GetProjectFile defines the MCP tool for retrieving the content of a file in a project.
+func GetProjectFile(getClient GetClientFn) (tool mcp.Tool, handler server.ToolHandlerFunc) {
+	return mcp.NewTool(
+			"getProjectFile",
+			mcp.WithDescription("Retrieves the content of a specific file within a GitLab project repository."),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{
+				Title:        "Get Project File Content",
+				ReadOnlyHint: true,
+			}),
+			mcp.WithString("projectId",
+				mcp.Required(),
+				mcp.Description("The ID (integer) or URL-encoded path (string) of the project."),
+			),
+			mcp.WithString("filePath",
+				mcp.Required(),
+				mcp.Description("The path to the file within the repository."),
+			),
+			mcp.WithString("ref",
+				mcp.Description("The name of branch, tag, or commit SHA (defaults to the repository's default branch)."),
+			),
+		),
+		// Handler function implementation
+		func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// --- Parse parameters
+			projectIDStr, err := requiredParam[string](&request, "projectId")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+			filePath, err := requiredParam[string](&request, "filePath")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil
+			}
+			ref, err := OptionalParam[string](&request, "ref")
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("Validation Error: %v", err)), nil // Should not happen with string?
+			}
+
+			// --- Construct GitLab API options
+			opts := &gl.GetFileOptions{}
+			if ref != "" {
+				opts.Ref = &ref
+			}
+
+			// --- Obtain GitLab client
+			glClient, err := getClient(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get GitLab client: %w", err)
+			}
+
+			// --- Call GitLab API
+			file, resp, err := glClient.RepositoryFiles.GetFile(projectIDStr, filePath, opts, gl.WithContext(ctx))
+
+			// --- Handle API errors
+			if err != nil {
+				code := http.StatusInternalServerError
+				if resp != nil {
+					code = resp.StatusCode
+				}
+				if code == http.StatusNotFound {
+					// Could be project not found or file not found
+					msg := fmt.Sprintf("project %q or file %q not found, or access denied (ref: %q) (%d)", projectIDStr, filePath, ref, code)
+					return mcp.NewToolResultError(msg), nil
+				}
+				return nil, fmt.Errorf("failed to get file %q from project %q (ref: %q): %w (status: %d)", filePath, projectIDStr, ref, err, code)
+			}
+
+			// --- Decode Base64 content
+			decodedContent, err := base64.StdEncoding.DecodeString(file.Content)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode base64 content for file %q: %w", filePath, err)
+			}
+
+			// --- Return success
+			// Consider returning metadata as well? For now, just content.
+			return mcp.NewToolResultText(string(decodedContent)), nil
 		}
 }

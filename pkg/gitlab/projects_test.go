@@ -2,6 +2,7 @@ package gitlab
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,21 @@ func setupMockClient(t *testing.T) (*gl.Client, *mock_gitlab.MockProjectsService
 	}
 
 	return client, mockProjects, ctrl
+}
+
+// Helper to create a mock GetClientFn for testing handlers
+// Updated to return the specific mock type needed for file operations
+func setupMockClientForFiles(t *testing.T) (*gl.Client, *mock_gitlab.MockRepositoryFilesServiceInterface, *gomock.Controller) {
+	ctrl := gomock.NewController(t)
+	mockFiles := mock_gitlab.NewMockRepositoryFilesServiceInterface(ctrl) // Mock for files
+
+	// Create a minimal client and attach the mock service
+	client := &gl.Client{
+		RepositoryFiles: mockFiles, // Attach the file service mock
+		// Projects:        Needs mockProjects if testing combined scenarios
+	}
+
+	return client, mockFiles, ctrl
 }
 
 func TestGetProjectHandler(t *testing.T) {
@@ -429,6 +445,165 @@ func TestListProjectsHandler(t *testing.T) {
 					expectedJSON, _ := json.Marshal(tc.expectedResult)
 					actualJSON, _ := json.Marshal(actualProjects)
 					assert.JSONEq(t, string(expectedJSON), string(actualJSON), "Project list content mismatch")
+				}
+			}
+		})
+	}
+}
+
+func TestGetProjectFileHandler(t *testing.T) {
+	ctx := context.Background()
+	mockClient, mockFiles, ctrl := setupMockClientForFiles(t)
+	defer ctrl.Finish()
+
+	// Mock getClient function for file tests
+	mockGetClientFiles := func(_ context.Context) (*gl.Client, error) {
+		return mockClient, nil
+	}
+
+	// --- Define the Tool and Handler ---
+	getProjectFileTool, getProjectFileHandler := GetProjectFile(mockGetClientFiles)
+
+	projectID := "group/project"
+	filePath := "src/main.go"
+	ref := "main"
+	fileContentBase64 := base64.StdEncoding.EncodeToString([]byte("package main\n\nfunc main() {}\n"))
+	fileContentDecoded := "package main\n\nfunc main() {}\n"
+
+	// --- Test Cases ---
+	tests := []struct {
+		name               string
+		inputArgs          map[string]any
+		mockSetup          func()
+		expectedResult     string // Expecting the decoded file content string
+		expectHandlerError bool
+		expectResultError  bool
+		errorContains      string
+	}{
+		{
+			name: "Success - Get File Content",
+			inputArgs: map[string]any{
+				"projectId": projectID,
+				"filePath":  filePath,
+				"ref":       ref,
+			},
+			mockSetup: func() {
+				expectedOpts := &gl.GetFileOptions{Ref: &ref}
+				mockFiles.EXPECT().
+					GetFile(projectID, filePath, expectedOpts, gomock.Any()).
+					Return(&gl.File{Content: fileContentBase64, FileName: filePath}, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil)
+			},
+			expectedResult: fileContentDecoded,
+		},
+		{
+			name: "Success - Get File Content - Default Ref",
+			inputArgs: map[string]any{
+				"projectId": projectID,
+				"filePath":  filePath,
+				// ref is omitted
+			},
+			mockSetup: func() {
+				// Expect opts with Ref being nil (or pointer to empty string depending on OptionalParam)
+				// Using AssignableToTypeOf is safer if nil vs empty string pointer matters
+				expectedOptsMatcher := gomock.AssignableToTypeOf(&gl.GetFileOptions{})
+				mockFiles.EXPECT().
+					GetFile(projectID, filePath, expectedOptsMatcher, gomock.Any()).
+					// Check that Ref is nil or points to empty within DoAndReturn if needed
+					Return(&gl.File{Content: fileContentBase64, FileName: filePath}, &gl.Response{Response: &http.Response{StatusCode: 200}}, nil)
+			},
+			expectedResult: fileContentDecoded,
+		},
+		{
+			name: "Error - File Not Found (404)",
+			inputArgs: map[string]any{
+				"projectId": projectID,
+				"filePath":  "nonexistent.txt",
+				"ref":       ref,
+			},
+			mockSetup: func() {
+				expectedOpts := &gl.GetFileOptions{Ref: &ref}
+				mockFiles.EXPECT().
+					GetFile(projectID, "nonexistent.txt", expectedOpts, gomock.Any()).
+					Return(nil, &gl.Response{Response: &http.Response{StatusCode: 404}}, errors.New("gitlab: 404 File Not Found"))
+			},
+			expectedResult:     "", // No content expected for error result
+			expectResultError:  true,
+			expectHandlerError: false,
+			errorContains:      fmt.Sprintf("project %q or file %q not found", projectID, "nonexistent.txt"),
+		},
+		{
+			name: "Error - GitLab API Error (500)",
+			inputArgs: map[string]any{
+				"projectId": projectID,
+				"filePath":  filePath,
+				"ref":       ref,
+			},
+			mockSetup: func() {
+				expectedOpts := &gl.GetFileOptions{Ref: &ref}
+				mockFiles.EXPECT().
+					GetFile(projectID, filePath, expectedOpts, gomock.Any()).
+					Return(nil, &gl.Response{Response: &http.Response{StatusCode: 500}}, errors.New("gitlab: 500 Internal Server Error"))
+			},
+			expectedResult:     "",
+			expectHandlerError: true,
+			errorContains:      fmt.Sprintf("failed to get file %q from project %q", filePath, projectID),
+		},
+		{
+			name:               "Error - Missing projectId",
+			inputArgs:          map[string]any{"filePath": filePath, "ref": ref},
+			mockSetup:          func() {},
+			expectedResult:     "",
+			expectResultError:  true,
+			expectHandlerError: false,
+			errorContains:      "Validation Error: missing required parameter: projectId",
+		},
+		{
+			name:               "Error - Missing filePath",
+			inputArgs:          map[string]any{"projectId": projectID, "ref": ref},
+			mockSetup:          func() {},
+			expectedResult:     "",
+			expectResultError:  true,
+			expectHandlerError: false,
+			errorContains:      "Validation Error: missing required parameter: filePath",
+		},
+	}
+
+	// --- Run Tests ---
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.mockSetup()
+
+			// Create the request
+			req := mcp.CallToolRequest{
+				Params: struct {
+					Name      string                 `json:"name"`
+					Arguments map[string]interface{} `json:"arguments,omitempty"`
+					Meta      *struct {
+						ProgressToken mcp.ProgressToken `json:"progressToken,omitempty"`
+					} `json:"_meta,omitempty"`
+				}{
+					Name:      getProjectFileTool.Name,
+					Arguments: tc.inputArgs,
+				},
+			}
+
+			// Execute the handler
+			result, err := getProjectFileHandler(ctx, req)
+
+			// Assertions
+			if tc.expectHandlerError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errorContains)
+				assert.Nil(t, result)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				textContent := getTextResult(t, result)
+
+				if tc.expectResultError {
+					assert.Contains(t, textContent.Text, tc.errorContains, "Error message mismatch")
+				} else {
+					assert.Equal(t, tc.expectedResult, textContent.Text, "Decoded file content mismatch")
 				}
 			}
 		})

@@ -46,6 +46,7 @@ func InitToolsets(
 	projectsTS.AddReadTools(
 		toolsets.NewServerTool(GetProject(getClient /*, t */)),
 		toolsets.NewServerTool(ListProjects(getClient /*, t */)),
+		toolsets.NewServerTool(GetProjectFile(getClient /*, t */)),
 	)
 	// projectsTS.AddWriteTools(...)
 
