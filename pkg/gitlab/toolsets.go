@@ -8,6 +8,9 @@ import (
 	// "github.com/mark3labs/mcp-go/server"
 )
 
+// DefaultTools defines the list of toolsets enabled by default.
+var DefaultTools = []string{"all"}
+
 // InitToolsets initializes the ToolsetGroup with GitLab-specific toolsets.
 // It creates the toolset definitions but does not populate them with actual tools yet.
 func InitToolsets(
