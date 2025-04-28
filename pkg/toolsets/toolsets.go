@@ -49,13 +49,14 @@ func NewToolset(name string, description string) *Toolset {
 // AddReadTools adds tools intended for read-only operations to the Toolset.
 // It enforces that the mcp.Tool definition includes Annotations.ReadOnlyHint = true.
 func (t *Toolset) AddReadTools(tools ...server.ServerTool) *Toolset {
-	for _, tool := range tools {
-		// The check for ReadOnlyHint is useful documentation but not strictly needed if handlers manage it
-		// if !tool.Tool.Annotations.ReadOnlyHint {
-		// 	fmt.Printf("Warning: Adding tool '%s' to read tools without ReadOnlyHint\n", tool.Tool.Name)
-		// }
-		t.readTools = append(t.readTools, tool)
-	}
+	// Check ReadOnlyHint for each tool (optional strictness) - Checks removed for simplicity
+	// for _, tool := range tools {
+	// 	if !tool.Tool.Annotations.ReadOnlyHint {
+	// 		// fmt.Printf("Warning: Adding tool '%s' to read tools without ReadOnlyHint\n", tool.Tool.Name)
+	// 	}
+	// }
+	// Simplify append using variadic operator
+	t.readTools = append(t.readTools, tools...)
 	return t
 }
 
@@ -63,13 +64,14 @@ func (t *Toolset) AddReadTools(tools ...server.ServerTool) *Toolset {
 // It enforces that the mcp.Tool definition does NOT have Annotations.ReadOnlyHint = true.
 // If the Toolset itself is marked readOnly, write tools are effectively ignored during registration.
 func (t *Toolset) AddWriteTools(tools ...server.ServerTool) *Toolset {
-	for _, tool := range tools {
-		// The check for ReadOnlyHint is useful documentation but not strictly needed if handlers manage it
-		// if tool.Tool.Annotations.ReadOnlyHint {
-		// 	fmt.Printf("Warning: Adding tool '%s' with ReadOnlyHint to write tools\n", tool.Tool.Name)
-		// }
-		t.writeTools = append(t.writeTools, tool)
-	}
+	// Check ReadOnlyHint for each tool (optional strictness) - Checks removed for simplicity
+	// for _, tool := range tools {
+	// 	if tool.Tool.Annotations.ReadOnlyHint {
+	// 		// fmt.Printf("Warning: Adding tool '%s' with ReadOnlyHint to write tools\n", tool.Tool.Name)
+	// 	}
+	// }
+	// Simplify append using variadic operator
+	t.writeTools = append(t.writeTools, tools...)
 	return t
 }
 
