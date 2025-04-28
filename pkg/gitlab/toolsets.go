@@ -22,7 +22,7 @@ var DefaultTools = []string{"all"}
 func InitToolsets(
 	enabledToolsets []string,
 	readOnly bool,
-	_ GetClientFn, // Renamed getClient to _ as it's unused for now
+	getClient GetClientFn, // Restore parameter name
 	// t translations.TranslationHelperFunc, // Removed for now
 ) (*toolsets.ToolsetGroup, error) {
 
@@ -43,7 +43,7 @@ func InitToolsets(
 	//    getProjectTool := toolsets.NewServerTool(GetProject(getClient, t))
 
 	// --- Add tools to projectsTS (Task 7 & 12) ---
-	// projectsTS.AddReadTools(...)
+	projectsTS.AddReadTools(toolsets.NewServerTool(GetProject(getClient /*, t */)))
 	// projectsTS.AddWriteTools(...)
 
 	// --- Add tools to issuesTS (Task 8 & 13) ---
