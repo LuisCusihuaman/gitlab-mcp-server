@@ -1,17 +1,23 @@
 package main
 
 import (
-	"context" // Added for signal handling
-	"fmt"
+	"context"    // Added for signal handling
+	"fmt"        // Added for stdio logging
 	stdlog "log" // Use standard log for initial fatal errors
 	"os"
 	"os/signal" // Added for signal handling
+	"strings"   // Added for toolset parsing
 	"syscall"   // Added for signal handling
 
-	"github.com/LuisCusihuaman/gitlab-mcp-server/pkg/gitlab" // Reference pkg/gitlab for DefaultTools
-	log "github.com/sirupsen/logrus"                         // Using logrus for structured logging
+	"github.com/LuisCusihuaman/gitlab-mcp-server/pkg/gitlab" // Reference pkg/gitlab
+	// Reference pkg/toolsets
+	// iolog "github.com/github/github-mcp-server/pkg/log" // TODO: Consider adding if command logging is needed
+	"github.com/mark3labs/mcp-go/server" // MCP server components
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	gl "gitlab.com/gitlab-org/api/client-go" // Alias for GitLab client library
+	// MCP types
 )
 
 // Injected by goreleaser
@@ -46,20 +52,108 @@ var (
 			defer stop() // Ensure stop is called to release resources
 			logger.Info("Signal handling initialized")
 
-			// Placeholder for server execution logic (Subtask 6.3)
-			logger.Info("Stdio server starting execution...")
-			// TODO: Read config from Viper (done partially for logger)
-			// TODO: Initialize GitLab client
-			// TODO: Initialize Toolsets
-			// TODO: Create MCP Server
-			// TODO: Register Toolsets
-			// TODO: Create Stdio Server
-			// TODO: Start listening
-			// TODO: Wait for context cancellation or error
-			logger.Info("Placeholder: Server execution logic goes here.")
+			// --- Subtask 6.3: Main Execution Flow ---
+			logger.Info("Starting main execution flow...")
 
-			<-ctx.Done() // Wait for signal
-			logger.Info("Shutdown signal received, terminating server...")
+			// Read configuration
+			token := viper.GetString("token")
+			if token == "" {
+				logger.Fatal("Required configuration missing: GITLAB_TOKEN (or --gitlab-token) must be set.")
+			}
+			host := viper.GetString("host") // Optional, defaults handled by NewClient
+			readOnly := viper.GetBool("read-only")
+
+			// Special handling for toolsets slice from env var
+			var enabledToolsets []string
+			toolsetsStr := viper.GetString("toolsets") // Get as string first
+			if toolsetsStr != "" {
+				enabledToolsets = strings.Split(toolsetsStr, ",")
+			} else {
+				// Fallback or default if necessary, viper should handle defaults from flags though
+				enabledToolsets = gitlab.DefaultTools
+				logger.Infof("No toolsets specified via config/env, using default: %v", enabledToolsets)
+			}
+			// Alternative using UnmarshalKey (might be cleaner if defaults work correctly)
+			// err = viper.UnmarshalKey("toolsets", &enabledToolsets)
+			// if err != nil {
+			// 	logger.Fatalf("Failed to unmarshal toolsets: %v", err)
+			// }
+			logger.Infof("Enabled toolsets: %v", enabledToolsets)
+			logger.Infof("Read-only mode: %t", readOnly)
+			if host != "" {
+				logger.Infof("Using custom GitLab host: %s", host)
+			}
+
+			// Initialize GitLab Client
+			// TODO: Update NewClient signature in pkg/gitlab/client.go if needed (e.g., to accept ctx)
+			glClient, err := gitlab.NewClient(token, host)
+			if err != nil {
+				logger.Fatalf("Failed to initialize GitLab client: %v", err)
+			}
+			logger.Info("GitLab client initialized")
+
+			// Define GetClientFn closure
+			getClient := func(_ context.Context) (*gl.Client, error) {
+				return glClient, nil // Provide the initialized client
+			}
+
+			// TODO: Initialize Translations (deferring for now)
+			// t, dumpTranslations := translations.TranslationHelper()
+
+			// Initialize Toolsets
+			toolsetGroup, err := gitlab.InitToolsets(enabledToolsets, readOnly, getClient /*, t */)
+			if err != nil {
+				logger.Fatalf("Failed to initialize toolsets: %v", err)
+			}
+			logger.Info("Toolsets initialized")
+
+			// Create MCP Server
+			// Use app name and version
+			mcpServer := gitlab.NewServer("gitlab-mcp-server", version)
+			logger.Info("MCP server wrapper created")
+
+			// Register Toolsets with the server (does not return error)
+			toolsetGroup.RegisterTools(mcpServer)
+			logger.Info("Toolsets registered with MCP server")
+
+			// Create Stdio Server
+			stdioServer := server.NewStdioServer(mcpServer)
+			// Configure logger for the stdio transport layer
+			stdioLogger := stdlog.New(logger.Writer(), "[StdioServer] ", 0) // Use logger's writer
+			stdioServer.SetErrorLogger(stdioLogger)
+			logger.Info("Stdio server transport created")
+
+			// Start Listening in a goroutine
+			errC := make(chan error, 1)
+			go func() {
+				logger.Info("Starting to listen on stdio...")
+				// TODO: Add command logging wrapper if flag is enabled
+				// in, out := io.Reader(os.Stdin), io.Writer(os.Stdout)
+				// if viper.GetBool("enable-command-logging") {
+				// 	 loggedIO := iolog.NewIOLogger(in, out, logger)
+				// 	 in, out = loggedIO, loggedIO
+				// }
+				errC <- stdioServer.Listen(ctx, os.Stdin, os.Stdout)
+			}()
+
+			// Announce readiness on stderr
+			fmt.Fprintf(os.Stderr, "GitLab MCP Server running on stdio (Version: %s, Commit: %s)\n", version, commit)
+			logger.Info("Server running, waiting for requests or signals...")
+
+			// Wait for shutdown signal or server error
+			select {
+			case <-ctx.Done(): // Triggered by signal
+				logger.Info("Shutdown signal received, context cancelled.")
+			case err := <-errC: // Triggered by server.Listen returning an error
+				if err != nil && err != context.Canceled {
+					logger.Errorf("Server encountered an error: %v", err)
+					// We might want os.Exit(1) here depending on desired behavior
+				} else {
+					logger.Info("Server listener stopped gracefully.")
+				}
+			}
+
+			logger.Info("Server shutting down.")
 		},
 	}
 )
